@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expense Review | Project Demo</title>
+<style>
+:root{color-scheme:light;--ink:#172b34;--muted:#4d636b;--line:#d2dfdf;--accent:#17604f;--paper:#fff;--bg:#eef4f2}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}main{width:min(100% - 32px,1000px);margin:44px auto 64px}
+header{padding:8px 0 24px}h1{font-size:clamp(2.2rem,6vw,3.6rem);letter-spacing:-.05em;line-height:1.08;margin:.2em 0}h2{font-size:1.28rem;margin:0 0 .5em}p{margin:.55em 0}header p{max-width:65ch}
+.eyebrow{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;font-weight:700;color:var(--accent)}.panel{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:clamp(16px,4vw,28px);margin-bottom:16px}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}.metrics div{padding:12px;background:var(--bg);border-radius:8px;color:var(--muted)}.metrics strong{display:block;font-size:1.55rem;color:var(--ink)}
+.controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.field{display:grid;gap:4px;font-size:.9rem}input[type=number]{width:125px}input,button,textarea{font:inherit}input[type=number],button,textarea{border:1px solid #95aaa9;border-radius:7px;padding:7px 10px}button{cursor:pointer;background:white;color:var(--ink);font-weight:650}button.primary{background:var(--accent);color:white;border-color:var(--accent)}button:disabled{opacity:.55;cursor:default}summary{cursor:pointer;font-weight:650}textarea{width:100%;min-height:135px;display:block;margin:8px 0 12px;color:var(--ink);background:#fbfdfc;font:13px/1.5 ui-monospace,monospace}#memo{min-height:200px}#status{color:var(--muted);min-height:1.5em}details{margin:14px 0}
+.table-wrap{overflow:auto}table{width:100%;min-width:620px;border-collapse:collapse;text-align:left;font-size:.93rem}th,td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}td:nth-child(4){white-space:nowrap}th{background:#f3f7f6}td strong{color:#76500a}td p{margin:.15em 0 .55em}td p:last-child{margin-bottom:0}li{margin:.4em 0}.small{color:var(--muted);font-size:.9rem}
+@media(max-width:480px){main{margin-top:22px}.metrics div{padding:8px;font-size:.8rem}}
+</style></head>
+<body><main>
+<header><p class="eyebrow">Accounting controls project</p><h1>Expense review tool</h1><p>Screen an expense ledger, see what triggered each flag, and download a memo for follow-up. The demo opens with 15 fictional transactions.</p></header>
+<section class="panel" aria-labelledby="review-title"><h2 id="review-title">Transaction review</h2>
+<div class="controls"><label class="field">Review limit (USD)<input id="limit" type="number" min=".01" step=".01" value="500"></label><button class="primary" id="run">Run review</button><button id="sample">Reset sample</button></div>
+<details><summary>View or replace the sample CSV</summary><label for="csv" class="small">Paste CSV with invoice_id, vendor, amount, and approver columns. Data stays in this browser tab.</label><textarea id="csv" spellcheck="false"></textarea></details>
+<p id="status" role="status"></p>
+<div class="metrics"><div><strong id="row-count">—</strong>Transactions</div><div><strong id="flagged-count">—</strong>Need review</div><div><strong id="finding-count">—</strong>Total flags</div></div>
+<label><input id="flag-only" type="checkbox" checked> Show flagged transactions only</label>
+<div class="table-wrap" tabindex="0" aria-label="Transaction review table"><table><thead><tr><th scope="col">Row</th><th scope="col">Invoice</th><th scope="col">Vendor</th><th scope="col">Amount</th><th scope="col">Findings and next steps</th></tr></thead><tbody id="transactions"></tbody></table></div>
+</section>
+<section class="panel" aria-labelledby="memo-title"><h2 id="memo-title">Review memo</h2><p class="small">Generated from the rule results each time the review runs.</p><textarea id="memo" aria-label="Generated review memo" readonly></textarea><button id="download">Download memo</button></section>
+<section class="panel" aria-labelledby="about-title"><h2 id="about-title">Project notes</h2><p>Reviewing a ledger row by row takes time, and some exceptions need more attention than others. This prototype gives a reviewer a starting list with an explanation for every flag.</p>
+<ul><li><strong>Duplicate invoice.</strong> Match vendor and invoice ID, ignoring capitalization and surrounding spaces. Flag every row in a matching group.</li><li><strong>Missing approver.</strong> Flag a blank approver field for follow-up against the original approval records.</li><li><strong>Above the limit.</strong> Flag amounts strictly greater than the chosen threshold.</li></ul>
+<p><strong>Example.</strong> At the default $500 threshold, the sample produces seven flags across six transactions. Row 8 is missing an approver and is above the threshold. Row 11 is exactly $500 and stays clear. The two $215 Blue Finch entries with invoice INV-102 are flagged, while the separate $215 invoice INV-107 stays clear.</p>
+<p><strong>Design choice.</strong> The checks and memo use explicit rules in JavaScript so a reviewer can reproduce each result. A flag calls for checking supporting records. The prototype does not determine whether a payment is invalid or whether fraud occurred.</p>
+<p class="small">Built with AI assistance. Runs locally in a browser with no dependencies or model API.</p>
+</section></main><script>
+
+const sample = 'invoice_id,vendor,amount,approver\n' + [
+  'INV-101,Northline Office,84.50,A. Lee',
+  'INV-102,Blue Finch Print,215.00,M. Chen',
+  'INV-103,Harbor IT,460.00,A. Lee',
+  'INV-104,Northline Office,120.00,',
+  'INV-105,Fieldstone Supply,1250.00,M. Chen',
+  'INV-106,Juniper Courier,52.75,T. Ross',
+  'INV-107,Blue Finch Print,215.00,M. Chen',
+  'INV-108,Cedar Event Co,925.00,',
+  'INV-109,Harbor IT,310.00,T. Ross',
+  'INV-102,Blue Finch Print,215.00,M. Chen',
+  'INV-111,Fieldstone Supply,500.00,A. Lee',
+  'INV-112,"Cedar Event Co, East",310.00,M. Chen',
+  'INV-113,Juniper Courier,49.25,T. Ross',
+  'INV-114,Harbor IT,500.01,M. Chen',
+  'INV-115,Northline Office,28.00,A. Lee'
+].join('\n');
+
+function parseCsv(input) {
+  const records = [];
+  let row = [], cell = '', quoted = false, closedQuote = false;
+  const csv = input.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n') + '\n';
+  for (let i = 0; i < csv.length; i++) {
+    const char = csv[i];
+    if (quoted) {
+      if (char === '"' && csv[i + 1] === '"') { cell += '"'; i++; }
+      else if (char === '"') { quoted = false; closedQuote = true; }
+      else cell += char;
+    } else if (char === ',' || char === '\n') {
+      row.push(cell.trim());
+      cell = '';
+      closedQuote = false;
+      if (char === '\n') {
+        if (row.some(Boolean) || row.length > 1) records.push(row);
+        row = [];
+      }
+    } else if (char === '"' && !cell && !closedQuote) {
+      quoted = true;
+    } else {
+      if (closedQuote || char === '"') throw Error('Check the CSV quoting.');
+      cell += char;
+    }
+  }
+  if (quoted) throw Error('A quoted CSV field is missing a closing quote.');
+  const headers = records.shift()?.map(value => value.toLowerCase());
+  const fields = ['invoice_id', 'vendor', 'amount', 'approver'];
+  if (headers?.length !== fields.length || fields.some(field => !headers.includes(field))) {
+    throw Error('Use these four column names: invoice_id, vendor, amount, approver.');
+  }
+  if (!records.length) throw Error('Add at least one transaction.');
+  return records.map((row, index) => {
+    const [invoice, vendor, amount, approver] = fields.map(field => row[headers.indexOf(field)]);
+    const cents = toCents(amount);
+    if (row.length !== fields.length || !invoice || !vendor || cents === null) {
+      throw Error('Transaction ' + (index + 1) + ' needs an invoice ID, vendor, and valid USD amount.');
+    }
+    return { number: index + 1, invoice, vendor, cents, approver };
+  });
+}
+
+function toCents(value) {
+  if (!/^\d+(?:\.\d{1,2})?$/.test(value ?? '')) return null;
+  const cents = Math.round(Number(value) * 100);
+  return Number.isSafeInteger(cents) && cents <= 100000000000 ? cents : null;
+}
+
+const dollars = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const money = cents => dollars.format(cents / 100);
+const normalize = value => value.trim().toUpperCase();
+
+function review(rows, limit) {
+  const groups = new Map();
+  const key = row => JSON.stringify([normalize(row.vendor), normalize(row.invoice)]);
+  for (const row of rows) {
+    const group = groups.get(key(row)) ?? [];
+    group.push(row.number);
+    groups.set(key(row), group);
+  }
+  return rows.map(row => {
+    const flags = [];
+    const peers = groups.get(key(row)).filter(number => number !== row.number);
+    if (peers.length) flags.push({
+      type: 'Duplicate invoice',
+      reason: 'Same vendor and invoice ID as transaction ' + peers.join(', ') + '.',
+      next: 'Compare the invoice copies and payment records before treating either entry as a duplicate.'
+    });
+    if (!row.approver) flags.push({
+      type: 'Missing approver',
+      reason: 'The approver field is blank.',
+      next: 'Look for approval in the source records and confirm it came from an authorized person.'
+    });
+    if (row.cents > limit) flags.push({
+      type: 'Above review limit',
+      reason: money(row.cents) + ' exceeds the ' + money(limit) + ' review limit.',
+      next: 'Check the expense against the policy and confirm any extra approval was recorded.'
+    });
+    return { ...row, flags };
+  });
+}
+
+function makeMemo(rows, limit) {
+  const flagged = rows.filter(row => row.flags.length);
+  return [
+    'Expense review memo',
+    rows.length + ' transactions reviewed. ' + flagged.length + ' need follow-up.',
+    'Review limit: ' + money(limit),
+    '',
+    ...flagged.flatMap(row => [
+      'Transaction ' + row.number + ' · ' + row.invoice + ' · ' + row.vendor + ' · ' + money(row.cents),
+      ...row.flags.map(flag => '- ' + flag.type + ': ' + flag.reason + ' ' + flag.next),
+      ''
+    ]),
+    'Flags identify items for human follow-up. The checks do not verify supporting documents.'
+  ].join('\n');
+}
+
+
+const byId = id => document.getElementById(id);
+const csv = byId('csv');
+const threshold = byId('limit');
+const table = byId('transactions');
+const memo = byId('memo');
+const status = byId('status');
+function render() {
+  table.replaceChildren();
+  memo.value = '';
+  byId('download').disabled = true;
+  for (const id of ['row-count','flagged-count','finding-count']) byId(id).textContent = '—';
+  try {
+    const limit = toCents(threshold.value);
+    if (limit === null || limit <= 0) throw Error('Enter a positive USD review limit with up to two decimal places.');
+    const rows = review(parseCsv(csv.value), limit);
+    const flagged = rows.filter(row => row.flags.length);
+    byId('row-count').textContent = rows.length;
+    byId('flagged-count').textContent = flagged.length;
+    byId('finding-count').textContent = rows.reduce((total, row) => total + row.flags.length, 0);
+    for (const row of byId('flag-only').checked ? flagged : rows) {
+      const tr = table.insertRow();
+      for (const value of [row.number, row.invoice, row.vendor, money(row.cents)]) {
+        tr.insertCell().textContent = value;
+      }
+      const findings = tr.insertCell();
+      if (!row.flags.length) findings.textContent = 'Clear under these rules';
+      for (const flag of row.flags) {
+        const label = document.createElement('strong');
+        label.textContent = flag.type;
+        const explanation = document.createElement('p');
+        explanation.textContent = flag.reason + ' ' + flag.next;
+        findings.append(label, explanation);
+      }
+    }
+    memo.value = makeMemo(rows, limit);
+    byId('download').disabled = false;
+    status.textContent = flagged.length ? 'Review complete.' : 'No transactions triggered a rule.';
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+function loadSample() {
+  csv.value = sample;
+  threshold.value = '500';
+  byId('flag-only').checked = true;
+  render();
+}
+byId('run').addEventListener('click', render);
+byId('sample').addEventListener('click', loadSample);
+byId('flag-only').addEventListener('change', render);
+byId('download').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([memo.value], { type: 'text/plain' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'expense-review-memo.txt';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+loadSample();
+
+</script></body></html>
